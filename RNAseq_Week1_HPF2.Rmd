@@ -1,0 +1,506 @@
+---
+title: "Week 1 Bioiformatics-RNAseq"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+#Load packages
+
+library(DESeq2)
+library(readr)
+library(here)
+library(zFPKM)
+
+```
+
+
+
+
+```{r}
+############## File Preparation ##################
+
+
+file <- read_tsv(file = "shLIMK1_C1_R2.tsv")
+
+file
+
+shLIMK1_C1_R2 <- file[,c("gene_id","num_reads_rv")]
+
+head(shLIMK1_C1_R2)
+
+############## File Preparation ##################
+
+#function to parse the file
+file_parser <- function(file){
+  file <- read_tsv(file)
+  filterfile <- file[,c("gene_id","num_reads_rv")]
+  return(filterfile)
+}
+
+#Using the function to make individual files
+NTC_R1<- file_parser(file = "NTC_R1.tsv")
+NTC_R2 <- file_parser(file = "NTC_R2.tsv")
+shLIMK1_C1_R1 <- file_parser(file = "shLIMK1_C1_R1.tsv")
+shLIMK1_C1_R2 <- file_parser(file = "shLIMK1_C1_R2.tsv")
+shLIMK1_C2_R1 <- file_parser(file = "shLIMK1_C2_R1.tsv")
+shLIMK1_C2_R2 <- file_parser(file = "shLIMK1_C2_R2.tsv")
+head(NTC_R1)
+
+#Binding all the tables
+count_table <- cbind(NTC_R1, 
+                     NTC_R2, 
+                     shLIMK1_C1_R1, 
+                     shLIMK1_C1_R2, 
+                     shLIMK1_C2_R1, 
+                     shLIMK1_C2_R2) 
+
+head(count_table)
+
+#
+#Matrix cannot have both integer and characters both. 
+count_table2<- count_table[,c(2,4,6,8,10,12)] #Subsetting the dataframe and adding just counts.
+
+head(count_table2)
+count_matrix <- as.matrix(count_table2) #Now converting to int. matrix
+
+rownames(count_matrix) <- count_table$gene_id #Adding rownames as geneID to the Matrix
+head(count_matrix)
+
+#Adding column names to the matrix
+colnames(count_matrix) <- c("NTC_R1","NTC_R2","shLIMK1_C1_R1","shLIMK1_C1_R2","shLIMK1_C2_R1","shLIMK1_C2_R2")
+
+head(count_matrix)
+########################################################
+
+```
+```{r}
+##################  Creating Meta Table  #################
+
+FileName <- c("NTC_R1", "NTC_R2", "shLIMK1_C1_R1", "shLIMK1_C1_R2","shLIMK1_C2_R1","shLIMK1_C2_R2")
+Sample <- c("NTC", "NTC", "shLIMK1_C1", "shLIMK1_C1", "shLIMK1_C2","shLIMK1_C2")
+Rep <- c("1","2","1","2","1","2")
+
+metaTable <- data.frame(Sample, Rep)
+
+rownames(metaTable) <- FileName
+head(metaTable)
+
+metaTable$Sample <- as.factor(metaTable$Sample)
+head (metaTable)
+
+###########################################################
+```
+
+
+```{r}
+####################### Filtering #########################
+
+#### Building a new function to make TPM Matrix ########
+file_parser2 <- function(file){
+  file <- read_tsv(file)
+  filterfile <- file[,c("gene_id","TPM_rv")]
+  return(filterfile)
+}
+
+#Using the function to make individual files
+NTC_R1_TPM<- file_parser2(file = "NTC_R1.tsv")
+NTC_R2_TPM <- file_parser2(file = "NTC_R2.tsv")
+shLIMK1_C1_R1_TPM <- file_parser2(file = "shLIMK1_C1_R1.tsv")
+shLIMK1_C1_R2_TPM <- file_parser2(file = "shLIMK1_C1_R2.tsv")
+shLIMK1_C2_R1_TPM <- file_parser2(file = "shLIMK1_C2_R1.tsv")
+shLIMK1_C2_R2_TPM <- file_parser2(file = "shLIMK1_C2_R2.tsv")
+head(NTC_R1_TPM)
+
+#Binding all the TPM tables
+TPM_table <- cbind(NTC_R1_TPM, NTC_R2_TPM, shLIMK1_C1_R1_TPM, shLIMK1_C1_R2_TPM, shLIMK1_C2_R1_TPM, shLIMK1_C2_R2_TPM) 
+
+head(TPM_table)
+
+#
+#Matrix cannot have both integer and characters both. 
+TPM_table2<- TPM_table[,c(2,4,6,8,10,12)] #Subsetting the dataframe and adding just TPMs.
+
+TPM_matrix <- as.matrix(TPM_table2) #Now converting to int. matrix
+
+rownames(TPM_matrix) <- TPM_table$gene_id #Adding rownames as geneID to the Matrix
+head(TPM_matrix)
+
+#
+
+#Adding column names to the matrix
+colnames(TPM_matrix) <- c("NTC_R1","NTC_R2","shLIMK1_C1_R1","shLIMK1_C1_R2","shLIMK1_C2_R1","shLIMK1_C2_R2")
+
+TPM_df <- as.data.frame(TPM_matrix) # zFPKM fuction takes data frame so converting matrix
+head(TPM_df)
+# Calculating z score
+z_score <- zFPKM(TPM_df)
+
+head (z_score)
+
+#Using apply function to find max of each row
+filtered_Z <- apply(z_score, 1, max)
+
+head(filtered_Z)
+
+#filtering genes (z>-3)
+filtered_genes <- filtered_Z[filtered_Z > -3]
+
+head(filtered_genes)
+
+# Obtaining Gene names of filtered genes as a vector
+Gene_names <- names(filtered_genes)
+
+head(Gene_names)
+
+#Subsetting the count matrix to just have filtered genes.
+count_matrix_filter <- count_matrix[Gene_names,]
+
+head(count_matrix_filter)
+
+plot(x = count_matrix_filter[,"NTC_R1"],
+     y = count_matrix_filter[,"NTC_R2"])
+
+count_log <- log1p(count_matrix_filter)
+
+head(count_log)
+
+# Density plots to visualize the change after filtering
+plot(density(count_log[,"NTC_R1"]), main = "Density plot filtered_NTC_R1")
+
+count_matrix_unfilter_log <- log1p(count_matrix)
+plot(density(count_matrix_unfilter_log[,"NTC_R1"]), main = "Density plot unfiltered_NTC_R1")
+
+
+## Quality assurance of the Dataset
+plot(x = count_log[,"NTC_R1"],
+     y = count_log[,"NTC_R2"])
+
+# The slight difference between the plots is due to the library size variation but for this case its pretty similar but if they vary greatly even DESeq2 cant handle that.
+boxplot(count_log)
+
+##############################################
+```
+
+```{r}
+######################### DESeq2 ################################
+
+# DESeq Object
+dds <- DESeqDataSetFromMatrix(countData = count_matrix_filter, ## Never provide log transformed                                                                    matrix as it will do it                                                                           automatically.
+                              colData = metaTable,
+                              design = ~Sample)
+
+dds
+
+head(assay(dds))
+
+colData(dds)
+
+dds_count_matrix <- assay(dds)
+
+dds_rlog <- rlog(dds)
+# Now dds_rlog is DESeqTransform object
+
+dds_rlog
+
+head(assay(dds_rlog))
+
+colData(dds_rlog)
+
+# PCA plotting to infer Batch Effect
+plotPCA(dds_rlog, intgroup = "Sample")
+plotPCA(dds_rlog, intgroup = "Rep")
+
+############## Correcting Batch Effect #######################
+
+batch_replicate <- as.factor(colData(dds_rlog)$Rep)
+model_main <- model.matrix(~Sample, data = colData(dds_rlog))
+
+batch_replicate
+
+matrix_rlog_nobatch <- sva::ComBat(
+  dat = assay(dds_rlog),
+  batch = batch_replicate,
+  mod = model_main
+)
+
+dds_rlog_nobatch <- dds_rlog
+assay (dds_rlog_nobatch) <- matrix_rlog_nobatch
+
+plotPCA(dds_rlog_nobatch, intgroup = "Rep")
+
+#################################################################
+
+######### Creating second dds incorporating batch effect  ###########
+  #######       (Modeling the Batch Effect)   #######
+
+dds2 <- DESeqDataSetFromMatrix(
+  countData = count_matrix_filter,
+  colData = metaTable,
+  design = ~Rep + Sample
+)
+
+#####################################################################
+
+################ Applying the Model #################
+
+dds_dge <- DESeq(dds2)
+
+dds_dge 
+
+#####################################################
+
+######## Comparing the raw and normalized counts produced by DESeq ###########
+count_raw <- counts(dds_dge)
+counts_normalized <- counts(dds_dge, normalized = T)
+
+head(count_raw)
+head(counts_normalized)
+
+Gene_raw <- count_raw[1,]
+head(Gene_raw)
+
+Gene_normalized <- counts_normalized[1,]
+
+Gene_bind <- rbind(Gene_raw, Gene_normalized)
+head(Gene_bind)
+
+?plotCounts
+
+plotCounts(dds_dge, "ENSG00000106683.10", intgroup = "Sample", xlab = "Sample", main = "LIMK1")
+plotCounts(dds_dge, "ENSG00000106683.10", intgroup = "Sample", normalized = F, xlab = "Sample")
+
+plotDispEsts(dds_dge)
+
+resultsNames(dds_dge)
+
+dds_result_1 <- results(object = dds_dge, contrast = c("Sample","shLIMK1_C1","NTC"))
+
+dds_result_2 <- results(object = dds_dge, contrast = c("Sample","shLIMK1_C2","NTC"))
+
+head(dds_result_2)
+
+head(dds_result_1)
+head(dds_result_2)
+
+# Now we are just concerned about the padj values and not the pvalue
+summary(dds_result_1, alpha =0.05)
+summary(dds_result_2, alpha =0.05)
+
+dds_result_df_1 <- as.data.frame(dds_result_1)
+dds_result_df_2 <- as.data.frame(dds_result_2)
+
+head(dds_result_df_1)
+head(dds_result_df_2)
+
+dds_result_df_1 <- dds_result_df_1[!is.na(dds_result_df_1$padj),]
+head(dds_result_df_1)
+
+dds_result_df_2 <- dds_result_df_2[!is.na(dds_result_df_2$padj),]
+head(dds_result_df_2)
+
+dds_result_df_1filter <- dds_result_df_1[dds_result_df_1$padj<0.05,]
+head(dds_result_df_1filter)
+
+dds_result_df_2filter <- dds_result_df_2[dds_result_df_2$padj<0.05,]
+head(dds_result_df_2filter)
+
+dim(dds_result_df_1filter)
+dim(dds_result_df_2filter)
+
+############ IHW ############
+
+dds_res_ihw_1 <- results(object = dds_dge, 
+                       contrast = c("Sample","shLIMK1_C1","NTC"), 
+                       filterFun = IHW::ihw)
+summary(dds_res_ihw_1, alpha = 0.05)
+
+dds_res_ihw_2 <- results(object = dds_dge, 
+                       contrast = c("Sample","shLIMK1_C2","NTC"), 
+                       filterFun = IHW::ihw)
+summary(dds_res_ihw_2, alpha = 0.05)
+
+######## log fold change shrinkage ########
+
+dds_res_normal_2 <- lfcShrink(dds = dds_dge,
+                            contrast = c("Sample","shLIMK1_C2","NTC"),
+                            res = dds_res_ihw_2,
+                            type = "normal")
+
+summary(dds_res_normal_2, alpha = 0.05)
+
+dds_res_ashr_2 <- lfcShrink(dds = dds_dge,
+                            res = dds_res_ihw_2,
+                            type = "ashr")
+
+dds_res_ihw_coef_1 <- results(object = dds_dge,
+                            name = "Sample_shLIMK1_C1_vs_NTC",
+                            filterFun = IHW::ihw)
+
+dds_res_apeglm_1 <- lfcShrink(dds = dds_dge,
+                            res = dds_res_ihw_coef_1,
+                            coef = "Sample_shLIMK1_C1_vs_NTC",
+                            type = "apeglm") 
+
+dds_res_ihw_coef_2 <- results(object = dds_dge,
+                            name = "Sample_shLIMK1_C2_vs_NTC",
+                            filterFun = IHW::ihw)
+
+dds_res_apeglm_2 <- lfcShrink(dds = dds_dge,
+                            res = dds_res_ihw_coef_2,
+                            coef = "Sample_shLIMK1_C2_vs_NTC",
+                            type = "apeglm") 
+
+par(mfrow=c(2,2))
+plotMA(dds_res_ihw_2, ylim = c(-5,5), main="No Shrinkage")
+plotMA(dds_res_normal_2, ylim = c(-5,5), main ="Normal Approach")
+plotMA(dds_res_ashr_2, ylim = c(-5,5), main= "ashr Approach")
+plotMA(dds_res_apeglm_2, ylim = c(-5,5), main ="apeglm Approach")
+
+
+plot(x= dds_res_ihw_2$log2FoldChange,
+     y = dds_result_2$log2FoldChange)
+
+plot(x=dds_res_ihw_2$log2FoldChange,
+     y= dds_res_apeglm_2$log2FoldChange)
+
+dds_res_ihw2_df <- as.data.frame(dds_res_ihw_2)
+dds_res_normal2_df <- as.data.frame(dds_res_normal_2)
+dds_res_ashr2_df <- as.data.frame(dds_res_ashr_2)
+dds_res_apeglm2_df <- as.data.frame(dds_res_apeglm_2)
+
+############## LFC Filtering ########################
+
+lfc_filter <- function(dataframe){
+  
+  dataframe <- dataframe[dataframe$padj<0.05,]
+  dataframe <- dataframe[abs(dataframe$log2FoldChange)>log2(1.15),]
+
+}
+
+dds_res_ihw2_df <- lfc_filter(dds_res_ihw2_df)
+dds_res_normal2_df <- lfc_filter(dds_res_normal2_df)
+dds_res_ashr2_df <- lfc_filter(dds_res_ashr2_df)
+dds_res_apeglm2_df <- lfc_filter(dds_res_apeglm2_df)
+
+table_comparison <- data.frame(ihw = nrow(dds_res_ihw2_df),
+                               normal = nrow(dds_res_normal2_df),
+                               ashr = nrow(dds_res_ashr2_df),
+                               apeglm = nrow(dds_res_apeglm2_df))
+table_comparison
+
+############ Annotation ####################
+# BiocManager::install("biomaRt")
+library("biomaRt")
+
+mart_connection <- useMart(
+  biomart = "ensembl",
+  host = "https://grch37.ensembl.org",
+  dataset = "hsapiens_gene_ensembl"
+)
+
+mart_attributes <- c("ensembl_gene_id_version","external_gene_name","gene_biotype","description")
+mart_filter <- c("ensembl_gene_id_version")
+
+table_annotation_all <- getBM(
+  attributes = mart_attributes,
+  filters = mart_filter,
+  values = "",
+  mart = mart_connection
+)
+
+head(table_annotation_all)
+
+table_annotation <- table_annotation_all[,c("ensembl_gene_id_version","external_gene_name")]
+dim(table_annotation)
+
+table_annotation <- unique (table_annotation)
+dim(table_annotation)
+
+## merging apeglm with gene names
+dds_res_apeglm2_df$ensembl_gene_id_version <- rownames(dds_res_apeglm2_df)
+
+dds_res_apeglm2_df <- dplyr::left_join(dds_res_apeglm2_df, table_annotation)
+
+## merging ashr with gene names
+
+dds_res_ashr_df$ensembl_gene_id_version <- rownames(dds_res_ashr_df)
+
+dds_res_ashr_df <- dplyr::left_join(dds_res_ashr_df, table_annotation)
+
+# merging ihw with gene names
+
+dds_res_ihw_df$ensembl_gene_id_version <- rownames(dds_res_ihw_df)
+
+dds_res_ihw_df <- dplyr::left_join(dds_res_ihw_df, table_annotation)
+
+## merging normal with gene names
+
+dds_res_normal_df$ensembl_gene_id_version <- rownames(dds_res_normal_df)
+
+dds_res_normal_df <- dplyr::left_join(dds_res_normal_df, table_annotation)
+
+head(dds_res_apeglm_df)
+
+## Saving the results in Excel
+
+library(writexl)
+
+# same as above difference is only we add all annotations
+
+dds_shLIMK1_C2_result <- dplyr::left_join(dds_res_apeglm2_df, table_annotation_all)
+
+head(dds_shLIMK1_C2_result)
+
+write_xlsx(
+  x = dds_shLIMK1_C2_result,
+  path = here("shLIMK1_C2.xlsx"),
+  col_names =T,
+  format_headers = F
+)
+
+##########################################################################################
+
+
+```
+```{r}
+#################### Comparison Chunk ############################
+
+summary(dds_res_apeglm_1, alpha = 0.05)
+summary(dds_res_apeglm_2, alpha = 0.05)
+
+LIMK1 <- "ENSG00000106683.10"
+
+par(mfrow =c(1,2))
+plotMA(dds_res_apeglm_1, ylim = c(-5,5), main ="shLIMK1_C1")
+with(dds_res_apeglm_1[LIMK1, ], {
+points(baseMean, log2FoldChange, col="red", cex=2, lwd=2)
+text(baseMean, log2FoldChange, "LIMK1", pos=2, col="red")
+})
+
+plotMA(dds_res_apeglm_2, ylim = c(-5,5), main ="shLIMK1_C2")
+with(dds_res_apeglm_2[LIMK1, ], {
+points(baseMean, log2FoldChange, col="red", cex=2, lwd=2)
+text(baseMean, log2FoldChange, "LIMK1", pos=2, col="red")
+})
+
+########################################################
+
+
+sessionInfo()
+```
+
+
+
+
+
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
